@@ -1,0 +1,91 @@
+//////////////////////////////////////////////////
+// Universidade Federal de Pernambuco - UFPE		  
+// Residência Tecnológica em Software Automotivo      			  
+// Módulo: SWT1 - RTOS e Sistemas Distribuídos 
+//////////////////////////////////////////////////
+
+OIL_VERSION = "2.5" : "test" ;
+
+CPU test {    
+  OS config {
+    STATUS = STANDARD;
+    BUILD = TRUE {	
+	  TRAMPOLINE_BASE_PATH 	= "../../../";
+      APP_NAME 			 	= "image_ECM";
+      APP_SRC	  			= "ECU1_ECM.cpp";
+      CPPCOMPILER			= "avr-g++";
+      COMPILER 				= "avr-gcc";
+      LINKER 				= "avr-gcc";
+      ASSEMBLER 			= "avr-gcc";
+      COPIER 				= "avr-objcopy";
+      SYSTEM 				= PYTHON;	  
+	  LIBRARY 				= serial; 
+	  LIBRARY 				= mcp_can;      
+    };
+    SYSTEM_CALL = TRUE;
+  };
+
+  APPMODE stdAppmode {};
+
+  ALARM alertaMensagem1 {
+    COUNTER= SystemCounter;
+    ACTION = ACTIVATETASK {
+      TASK = M1;
+    };
+    AUTOSTART = TRUE {
+      ALARMTIME = 100; //ativado a cada 100 ms
+      CYCLETIME = 100; //ativado a cada 100 ms
+      APPMODE 	= stdAppmode;
+    };
+  };
+  
+  ALARM alertaMensagem2 {
+    COUNTER= SystemCounter;
+    ACTION = ACTIVATETASK {
+      TASK = M2;
+    };
+    AUTOSTART = TRUE {
+      ALARMTIME = 100; //ativado a cada 100 ms
+      CYCLETIME = 100; //ativado a cada 100 ms
+      APPMODE 	= stdAppmode;
+    };
+  };
+
+  ALARM alertaMensagem3 {
+    COUNTER= SystemCounter;
+    ACTION = ACTIVATETASK {
+      TASK = M3;
+    };
+    AUTOSTART = TRUE {
+      ALARMTIME = 250; //ativado a cada 250 ms
+      CYCLETIME = 250; //ativado a cada 250 ms
+      APPMODE 	= stdAppmode;
+    };
+  };
+
+  
+  TASK M1 {
+    PRIORITY 	= 10;
+    AUTOSTART 	= FALSE;
+    ACTIVATION 	= 1;
+    SCHEDULE 	= FULL;
+    STACKSIZE 	= 128; // Ver se o Stacksize está de acordo. Precisa aumentar ou diminuir??
+  };
+   
+  TASK M2 {
+    PRIORITY 	= 15;
+    AUTOSTART 	= FALSE;
+    ACTIVATION 	= 1;
+    SCHEDULE 	= FULL;
+    STACKSIZE 	= 128; // Ver se o Stacksize está de acordo. Precisa aumentar ou diminuir??
+  };
+  
+  TASK M3 {
+    PRIORITY 	= 25; // Vou colocar a task m3 com maior prioridade,pois ela é enviada em intervalos de tempo maiores
+    AUTOSTART 	= FALSE;
+    ACTIVATION 	= 1;
+    SCHEDULE 	= FULL;
+    STACKSIZE 	= 128; // Ver se o Stacksize está de acordo. Precisa aumentar ou diminuir??
+  };
+  
+};

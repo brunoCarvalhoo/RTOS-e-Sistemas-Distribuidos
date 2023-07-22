@@ -1,0 +1,189 @@
+//////////////////////////////////////////////////
+// Universidade Federal de Pernambuco - UFPE		  
+// Residência Tecnológica em Software Automotivo      			  
+// Módulo: SWT1 - RTOS e Sistemas Distribuídos
+// Aluno: Bruno Carvalho do Nascimento Rosa
+//////////////////////////////////////////////////
+
+#include "tpl_os.h"
+#include "Arduino.h"
+#include "board.h"
+
+//Definições para a task M2
+#define EECU1_ID			0x0CF00400 //Dicionário de dados 
+#define EECU1_DLC			8
+#define EECU1_EXT_FRAME		1
+
+//Variavel que armazena as informações da M2
+unsigned char EECU1_data[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+//Definições para a task M3
+#define CCVS_ID				0x18FEF100 //Dicionário de dados 
+#define CCVS_DLC			8
+#define CCVS_EXT_FRAME		1
+
+//Variavel que armazena as informações da M3
+unsigned char CCVS_data[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+static byte ret = 0;
+int valorRot;
+int valorVel;
+int valorConvertidoRot;
+int valorConvertidoVel;
+int ultimoValor;
+int marchaAtual;
+int resolucaoM1 = 1;
+static byte offsetM1 = -125;
+float resolucaoM2 = 0.125;
+static byte offsetM2 = 0;
+float resolucaoM3 = 1/256;
+static byte offsetM3 = 0;
+
+// --------------------
+
+unsigned int intTEST1= 0xABCD;
+unsigned int intTEST2= 0xABCD;
+byte bHrot = intTEST1>>8;
+byte bLrot = intTEST1;
+byte bHvel = intTEST2>>8;
+byte bLvel = intTEST2;
+
+//Variavel para armazenar informacoes do frame recebido
+unsigned char 		mDLC = 0;
+unsigned char 		mDATA[8];
+long unsigned int 	mID;
+
+//Constroi objeto MCP_CAN e configura-o para o barramento CAN1.
+MCP_CAN CAN1(ECU1_CAN1_CS);  
+
+void setup() {
+	//Inicializa a interface serial: baud rate = 115200
+	Serial.begin(115200);
+	
+	//Inicializa o controlador can : baudrate = 500K, clock=8MHz
+	while (CAN1.begin(MCP_ANY, CAN_500KBPS, MCP_8MHZ) != CAN_OK) {
+        delay(200);        
+    }
+	Serial.println("MCP2515 can_send inicializado com sucesso!");
+	//Modifica para o modo normal de operação
+	CAN1.setMode(MCP_NORMAL);
+}
+//////////////////////////////////////////////////////////////////////////////////
+//	Task M1    									   
+//  Utilizada para receber através da rede CAN a mensagem M1				 					   
+//  Taxa de transmissao e repeticao: 100 ms									   
+//////////////////////////////////////////////////////////////////////////////////
+TASK(M1) {
+	//Envia mensagem para o barramento
+		
+		if(!digitalRead(ECU1_CAN1_INT)){
+		//Lê os dados: mID = identificador, mDLC = comprimento, mDATA = dados do freame
+		CAN1.readMsgBuf(&mID, &mDLC, mDATA);
+		
+			if((mID & 0x18F00503) == 0x18F00503){
+			
+				marchaAtual = (static_cast<int>(mDATA[3])*resolucaoM1)+offsetM1; // Reconvertendo
+			
+			}
+		}
+}
+//////////////////////////////////////////////////////////////////////////////////
+//	Task M2    									   
+//  Utilizada para enviar a rotação do motor do ECU para o ICM através da rede CAN				 					   
+//  Taxa de transmissao e repeticao: 100 ms									   
+//////////////////////////////////////////////////////////////////////////////////
+TASK(M2) {
+	
+	// Convertendo
+	if (Serial.available() > 0) {  // Verifica se há dados disponíveis na porta serial 
+		
+		valorRot = Serial.parseInt();  // Lê o valor recebido da porta serial
+		 
+		valorConvertidoRot = (valorRot*(1/resolucaoM2))-offsetM2;
+		
+		bHrot = valorConvertidoRot;
+		bLrot = valorConvertidoRot;
+		
+		if (valorRot != 0){			
+			EECU1_data[3] = static_cast<unsigned char>(bHrot);
+			EECU1_data[4] = static_cast<unsigned char>(bLrot);
+		} else {
+			EECU1_data[3] = static_cast<unsigned char>(bHrot);
+			EECU1_data[4] = static_cast<unsigned char>(bLrot);
+		}
+		Serial.read(); // fflush
+	} else {
+		EECU1_data[3] = static_cast<unsigned char>(bHrot);
+		EECU1_data[4] = static_cast<unsigned char>(bLrot);
+	}
+	
+	// Confirmação do envio da mensagem para o ICM	
+	ret = CAN1.sendMsgBuf(EECU1_ID, EECU1_EXT_FRAME, EECU1_DLC, EECU1_data);
+	if (ret == CAN_OK) {
+	} else if (ret == CAN_SENDMSGTIMEOUT) {      
+	} else {         
+	}
+	Serial.read(); // faz a função do fflush 
+}
+//////////////////////////////////////////////////////////////////////////////////
+//	Task M3    									   
+//  Utilizada para calcular a velocidade do veículo do ECU e enviar para a ICM			 					   
+//  Taxa de transmissao e repeticao: 250 ms									   
+//////////////////////////////////////////////////////////////////////////////////
+TASK(M3) {
+	
+	//Envia mensagem para o barramento
+	float we = 0;
+	float rw = 0.326; // Constante
+	float nd = 3.55; // Constante
+	float ng;
+	float vx;
+	
+	if (Serial.available() > 0) {  // Verifica se há dados disponíveis na porta serial 
+		valorVel = Serial.parseInt(); 
+		// Lê o valor recebido da porta serial
+		we = valorVel;
+		
+		if(marchaAtual == 1 && valorRot <= 4000){
+			ng = 3.83;
+		}else if(marchaAtual == 2 && valorRot <= 4800){
+			ng = 2.36;
+		}else if(marchaAtual == 3 && valorRot <= 5600){
+			ng = 1.69;
+		}else if(marchaAtual == 4 && valorRot <= 6400){
+			ng = 1.31;
+		}else if(marchaAtual == 5 && valorRot <= 7200){
+			ng = 1.00;
+		}else{
+			Serial.println(valorRot);
+		}
+		
+		// Equação de determinação da Velocidade do Motor
+		vx = (rw*we) / (ng*nd);
+		
+		valorConvertidoVel = (vx*(1/resolucaoM3))-offsetM3;
+		
+		bHvel = valorConvertidoVel;
+		bLvel = valorConvertidoVel;
+			if (valorVel != 0){
+				CCVS_data[1] = static_cast<unsigned char>(bHvel);
+				CCVS_data[2] = static_cast<unsigned char>(bLvel);
+			} else {
+				CCVS_data[1] = static_cast<unsigned char>(bHvel);
+				CCVS_data[2] = static_cast<unsigned char>(bLvel);
+			}
+		} else {
+			CCVS_data[1] = static_cast<unsigned char>(bHvel);
+			CCVS_data[2] = static_cast<unsigned char>(bLvel);
+		}
+		
+		ret = CAN1.sendMsgBuf(CCVS_ID, CCVS_EXT_FRAME, CCVS_DLC, CCVS_data);
+	
+		if (ret == CAN_OK) {
+
+		} else if (ret == CAN_SENDMSGTIMEOUT) {
+   
+		} else {    
+      
+		}
+}
